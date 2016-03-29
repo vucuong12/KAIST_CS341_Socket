@@ -1,0 +1,25 @@
+Number of arguments is: 7
+Length of input is: 7161629
+asdfasdf 65535
+00
+01
+00
+00
+00
+00
+00
+00
+--------------
+Check sum is : -2
+fffffffe
+PHASE 1 Sent message
+00
+01
+fe
+ff
+00
+00
+00
+00
+nwritten for sending data: 8
+Socket closed: 0
