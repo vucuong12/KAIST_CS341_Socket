@@ -17,56 +17,56 @@ typedef unsigned long u32;
 
 
 int isValidInput(int argc, char *argv[]){
-	if (argc >= 3 && strcmp("-p", argv[1]) == 0)
-		return 1;
-	else
-		return 0;
+  if (argc >= 3 && strcmp("-p", argv[1]) == 0)
+    return 1;
+  else
+    return 0;
 }
 
 int sendDataToClient(int sockfd, char* bufp, int bufLength){
-	int nleft = bufLength;
-	int nwritten;
+  int nleft = bufLength;
+  int nwritten;
 
-	while (nleft > 0) {
-		if ((nwritten = write(sockfd, bufp, nleft)) <= 0) {
-	    if (errno == EINTR)  /* interrupted by sig handler return */
-				nwritten = 0;    /* and call write() again */
-	    else{
-	    	printf("%d\n", errno);
-	    	perror("ERROR writing to client");
-    		return -1;     /* errorno set by write() */
-	    }
-				
-		}
-		nleft -= nwritten;
-		bufp += nwritten;
+  while (nleft > 0) {
+    if ((nwritten = write(sockfd, bufp, nleft)) <= 0) {
+      if (errno == EINTR)  /* interrupted by sig handler return */
+        nwritten = 0;    /* and call write() again */
+      else{
+        printf("%d\n", errno);
+        perror("ERROR writing to client");
+        return -1;     /* errorno set by write() */
+      }
+        
+    }
+    nleft -= nwritten;
+    bufp += nwritten;
   }
   return 1;
 }
 
 char* readDataFromClient(int sockfd, char* buf, int* fileLength, int phase, int protocol){
-	int length = 0;
-	char *bufp = buf;
+  int length = 0;
+  char *bufp = buf;
   char *startBuf = bufp;
-	int nread;
-	int nwritten;
+  int nread;
+  int nwritten;
   int isFirstTime = 1;
-	while (1) {
-		if ((nread = read(sockfd, bufp, MAX_BUF)) < 0) {
-			if (errno == EINTR) { /* interrupted by sig handler return */
-				printf("interrupted: %d\n", length);
-				nread = 0;    /* and call write() again */
-			} else {
-		  	perror("ERROR reading from client");
-		 		return NULL;      /* errorno set by write() */
-		  }
-		} else if (nread == 0) {
-			printf("Socket closed: %d\n", errno);
-			return NULL; //EOF 
-		}
+  while (1) {
+    if ((nread = read(sockfd, bufp, MAX_BUF)) < 0) {
+      if (errno == EINTR) { /* interrupted by sig handler return */
+        printf("interrupted: %d\n", length);
+        nread = 0;    /* and call write() again */
+      } else {
+        perror("ERROR reading from client");
+        return NULL;      /* errorno set by write() */
+      }
+    } else if (nread == 0) {
+      printf("Socket closed: %d\n", errno);
+      return NULL; //EOF 
+    }
 
-		bufp += nread;
-		length += nread;
+    bufp += nread;
+    length += nread;
 
     if (phase == 1){
       if (length == (*fileLength)) break;
@@ -89,7 +89,7 @@ char* readDataFromClient(int sockfd, char* buf, int* fileLength, int phase, int 
         if (isFirstTime == 0 && length == (*fileLength) + 4) {break;};
       }
     }
-	}
+  }
 
   *fileLength = length;
   return startBuf;
@@ -115,7 +115,7 @@ int checkSum(char*buf, int length){
 }
 
 void copyNumberToBuf(int number, char* buf, int length){
-	memcpy(buf, &number, length);
+  memcpy(buf, &number, length);
 }
 
 void numberToBuf(int number, char *buf, int length){
@@ -148,6 +148,7 @@ char* processMessage(int protocol, char* buf, int* fileLength){
             return NULL;
           }
           if (buf[i + 1] == '\\') i += 2;
+          if (buf[i + 1] == '0') break;
         }
       }
     }
@@ -178,21 +179,22 @@ char* processMessage(int protocol, char* buf, int* fileLength){
 
 
 int main(int argc, char *argv[]){
-	int sockfd, clientFd, clilen;
-	struct sockaddr_in serverAdd, clientAdd;
-	int port;
-	int lengthToSend = 0;
-	char *bufToSend;
-	int resLength = 0;
-	char *resBuf;
+  int sockfd, clientFd, clilen;
+  struct sockaddr_in serverAdd, clientAdd;
+  int port;
+  int lengthToSend = 0;
+  char *bufToSend;
+  int resLength = 0;
+  char *resBuf;
   int protocol, trans_id, checksum;
   char* mutualBuf;
   int i = 0;
+  int pid;
 
-	if (isValidInput(argc, argv) == 0) {
-		fprintf(stderr,"Invalid input\n");
-		return 0;
-	}
+  if (isValidInput(argc, argv) == 0) {
+    fprintf(stderr,"Invalid input\n");
+    return 1;
+  }
   signal(SIGPIPE, SIG_IGN);  //ignore SIGPINE signal
   port = atoi(argv[2]);
   //Create a socket
@@ -209,93 +211,110 @@ int main(int argc, char *argv[]){
   //Bind the host address using bind() call.
   if (bind(sockfd, (struct sockaddr *) &serverAdd, sizeof(serverAdd)) < 0) {
     perror("ERROR on binding");
-    exit(1);
+    printf("Done with one client\n");exit(1);
   }
   int enable = 1;
   if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0)
     error("setsockopt(SO_REUSEADDR) failed");
 
+  listen(sockfd,LISTENQ);
+  clilen = sizeof(clientAdd);
 
   //CONNECT EACH CLIENT
   while (1) {
-    printf("--------------------------------\n");
-    listen(sockfd,LISTENQ);
-    clilen = sizeof(clientAdd);
-   
    // establish connection with each client
     clientFd = accept(sockfd, (struct sockaddr *)&clientAdd, &clilen);
+    printf("New Connection\n");
     if (clientFd < 0) {
       perror("ERROR on accept");
-      continue;
+      printf("Done with one client\n");exit(1);
     }
 
-    //CREATE AN MUTUAL MEMORY CHUNK
-    mutualBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
-    //-------------PHASE 1--------------
-    //.READ
-    resLength = 8;
-    resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 1, 0);
-    if (!resBuf){
-      free(mutualBuf);
-      close(clientFd);
-      continue;
-    }
-
-
-    //.WRITE
-    protocol = (int) resBuf[1];
-    if (protocol == 0) protocol = 2;
-    //check checkSum
-    checksum = ntohs(*((unsigned short*)( resBuf + 2)));
-    numberToBuf(checksum, resBuf + 2, 2);
-    if ((unsigned short)checkSum(resBuf, 8) != 0) {
-      close(clientFd);
-      free(mutualBuf);
-      continue;
-    }
-
-    numberToBuf(1, resBuf, 1);
-    numberToBuf(protocol, resBuf + 1, 1);
-    int check = sendDataToClient(clientFd, resBuf, 8);
-    if (check == -1){
-      close(clientFd);
-      free(mutualBuf);
-      continue;
-    }
-  
-    //---------------PHASE 2----------------
-    //.READ
-    resLength = -1;
-    resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 2, protocol);
-    if (!resBuf){
-      close(clientFd);
-      free(mutualBuf);
-      continue;
+    pid = fork();
+    
+    if (pid < 0) {
+       perror("ERROR on fork");
+       printf("Done with one client\n");exit(1);
     }
     
+    if (pid == 0) {
+        /* This is the client process */
+        close(sockfd);
+        ///START
+        //CREATE AN MUTUAL MEMORY CHUNK
+        mutualBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
+        //-------------PHASE 1--------------
+        //.READ
+        resLength = 8;
+        resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 1, 0);
+        if (!resBuf){
+          free(mutualBuf);
+          close(clientFd);
+          printf("Done with one client\n");exit(1);
+        }
+
+
+        //.WRITE
+        protocol = (int) resBuf[1];
+        if (protocol == 0) protocol = 2;
+        //check checkSum
+        checksum = ntohs(*((unsigned short*)( resBuf + 2)));
+        numberToBuf(checksum, resBuf + 2, 2);
+        if ((unsigned short)checkSum(resBuf, 8) != 0) {
+          close(clientFd);
+          free(mutualBuf);
+          printf("Done with one client\n");exit(1);
+        }
+
+        numberToBuf(1, resBuf, 1);
+        numberToBuf(protocol, resBuf + 1, 1);
+        int check = sendDataToClient(clientFd, resBuf, 8);
+        if (check == -1){
+          close(clientFd);
+          free(mutualBuf);
+          printf("Done with one client\n");exit(1);
+        }
+      
+        //---------------PHASE 2----------------
+        //.READ
+        resLength = -1;
+        resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 2, protocol);
+        if (!resBuf){
+          close(clientFd);
+          free(mutualBuf);
+          printf("Done with one client\n");exit(1);
+        }
+        
+        
+        //.PROCESS
+        bufToSend = processMessage(protocol, resBuf, &resLength);
+        if (bufToSend == NULL){
+          close(clientFd);
+          free(mutualBuf);
+          printf("Done with one client\n");exit(1);
+        }
+
+        //.WRITE
+        check = sendDataToClient(clientFd, bufToSend, resLength);
+        if (check == -1){
+          close(clientFd);
+          free(mutualBuf);
+          printf("Done with one client\n");exit(1);
+        }
+
+        printf("%s\n", "Done with one client\n");
+        free(mutualBuf);
+        free(bufToSend);
+        close(clientFd);
+        ///END
+        exit(0);
+    }
+    else {
+      close(clientFd);
+    }
+
     
-    //.PROCESS
-    bufToSend = processMessage(protocol, resBuf, &resLength);
-    if (bufToSend == NULL){
-      close(clientFd);
-      free(mutualBuf);
-      continue;
-    }
-
-    //.WRITE
-    check = sendDataToClient(clientFd, bufToSend, resLength);
-    if (check == -1){
-      close(clientFd);
-      free(mutualBuf);
-      continue;
-    }
-
-    printf("%s\n", "Done with one client");
-    free(mutualBuf);
-    free(bufToSend);
-    close(clientFd);
   }
-  
-	close(sockfd);
-	return 0;
+  close(sockfd);
+  return 0;
 }

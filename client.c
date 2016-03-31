@@ -19,7 +19,8 @@ typedef unsigned long u32;
 int isValidInput(int argc, char *argv[]){
 	if (argc < 7 || strcmp("-h", argv[1]) != 0 || strcmp("-p", argv[3]) != 0 || strcmp("-m", argv[5]) != 0 )
 		return 0;
-  
+  if (strcmp("0", argv[6]) != 0 && strcmp("1", argv[6]) != 0 && strcmp("2", argv[6]) != 0)
+    return 0;
   return 1;
 }
 
@@ -83,7 +84,7 @@ char* readDataFromServer(int sockfd, char* buf, int* fileLength, int phase, int 
         return NULL;      /* errorno set by write() */
       }
     } else if (nread == 0) {
-      perror("Socket closed: \n");
+      fprintf(stderr, "Socket closed\n");
       return NULL;
     }
 
@@ -216,7 +217,8 @@ int main(int argc, char *argv[]){
   char *mutualBuf;
 
 	if (isValidInput(argc, argv) == 0) {
-		return 0;
+		fprintf(stderr, "Invalid command\n");
+    return 1;
 	}
   
 	port = atoi(argv[4]);
@@ -290,7 +292,7 @@ int main(int argc, char *argv[]){
   }
 
   protocol = (int) resBuf[1];
-
+  sleep(5);
   
   //-----------------------------------
   //-------------PHASE 2---------------

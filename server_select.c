@@ -168,6 +168,7 @@ char* processMessage(int protocol, char* buf, int* fileLength){
             return NULL;
           }
           if (buf[i + 1] == '\\') i += 2;
+          if (buf[i + 1] == '0') break;
         }
       }
     }
@@ -314,11 +315,13 @@ void clientJob(client* client, pool *p){
     }
     
     //.PROCESS
+    printf("Before process\n");
     bufToSend = processMessage(protocol, resBuf, &resLength);
     if (bufToSend == NULL){
       endClientJob(client, mutualBuf, bufToSend, p);
       return;
     }
+    printf("After protcess\n");
 
     //.WRITE
     sendDataToClient(client->ID, bufToSend, resLength);
@@ -353,7 +356,7 @@ int main(int argc, char *argv[]){
 
   if (isValidInput(argc, argv) == 0) {
     fprintf(stderr,"Invalid input\n");
-    return 0;
+    return 1;
   }
   signal(SIGPIPE, SIG_IGN);  //ignore SIGPINE signal
   port = atoi(argv[2]);
