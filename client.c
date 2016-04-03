@@ -29,7 +29,7 @@ int min(int a, int b){
   return b;
 }
 
-int sendWrapper(int sockfd, char* bufp, int nleft){
+int sendDataToServer1(int sockfd, char* bufp, int nleft){
 
   int maxLengthToSend = 50000;
   int nsent;
@@ -40,18 +40,21 @@ int sendWrapper(int sockfd, char* bufp, int nleft){
     if (nsent < 1) return nsent;
     nleft -= nsent;
     total += nsent;
-    if (total > 500000) sleep(1);
+    /*if (total > 500000)*/ sleep(0.2);
     fprintf(stderr, "TOTAL %d\n", total);
   }
   return 1;
 }
 
 int sendDataToServer(int sockfd, char* bufp, int bufLength){
+  int maxLengthToSend = 50000;
+  int nsent;
 	int nleft = bufLength;
 	int nwritten = 0;
 
 	while (nleft > 0) {
-    nwritten =  send(sockfd, bufp, nleft, 0);
+    nwritten =  send(sockfd, bufp, min(maxLengthToSend, nleft), 0);
+
 		if (nwritten <= 0) {
       
 	    if (errno == EINTR)  /* interrupted by sig handler return */
@@ -63,6 +66,7 @@ int sendDataToServer(int sockfd, char* bufp, int bufLength){
 		}
 
 		nleft -= nwritten;
+    //fprintf(stderr, "%d\n", nleft);
 		bufp += nwritten;
   }
   return 1;
@@ -122,10 +126,13 @@ int readInputFile(char* buf){
   int fileLength = 0;
   buf += 4;
   int nread = 0;
+  //char* tempBuf = (char*) malloc (sizeof(char)* MAX_FILE_LENGTH * 2);
   while((nread = read(STDIN_FILENO, buf, MAX_BUF)) > 0)
   {
+    //fprintf(stderr, "DM %d\n", nread);
     fileLength += nread;
     buf += nread;
+
   }
   if (nread < 0) {
     perror("ERROR reading input !");
@@ -292,7 +299,6 @@ int main(int argc, char *argv[]){
   }
 
   protocol = (int) resBuf[1];
-  sleep(5);
   
   //-----------------------------------
   //-------------PHASE 2---------------
