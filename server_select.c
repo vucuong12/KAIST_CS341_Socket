@@ -22,6 +22,8 @@ typedef struct{
   int ID;
   int protocol;
   int order;
+  int isFirstChunk;
+  char lastByte;
 } client;
 
 typedef struct {
@@ -52,7 +54,6 @@ int sendDataToClient(int sockfd, char* bufp, int bufLength){
       if (errno == EINTR)  /* interrupted by sig handler return */
         nwritten = 0;    /* and call write() again */
       else{
-        printf("%d\n", errno);
         perror("ERROR writing to client");
         return -1;     /* errorno set by write() */
       }
@@ -146,9 +147,10 @@ void numberToBuf(int number, char *buf, int length){
     }
   }
 }
-
-char* processMessage(int protocol, char* buf, int* fileLength){
+char* processMessage(int protocol, char* buf, int* fileLength, int* isFirstChunk, char* lastByte, char** newBufHead){
   char* newBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
+  *newBufHead = newBuf;
+
   //.Protocol 1
   if (protocol == 1){
     int i = 0, j = 0;
@@ -158,13 +160,11 @@ char* processMessage(int protocol, char* buf, int* fileLength){
         i++;
       } else {
         if (buf[i + 1] != '\\') {
-          fprintf(stderr, "Protocol violated\n" );
           return NULL;
         }
         newBuf[j++] = buf[i++]; newBuf[j++] = buf[i++];
         while (buf[i] == '\\') {
           if (buf[i + 1] != '\\' && buf[i + 1] != '0') {
-            fprintf(stderr, "Protocol violated\n" );
             return NULL;
           }
           if (buf[i + 1] == '\\') i += 2;
@@ -172,8 +172,24 @@ char* processMessage(int protocol, char* buf, int* fileLength){
         }
       }
     }
+
+    //REMOVE first bytes if they are the same as lastByte
+    if (*isFirstChunk == 0){
+      i = 0;
+      while (i < j && newBuf[i] == *lastByte){
+        i++;
+      }
+      newBuf += i;
+      j -= i;
+      if (j != 0) *lastByte = newBuf[j - 1];
+    } else {
+      if (j != 0) *lastByte = newBuf[j - 1];
+    }
+    
     newBuf[j++] = '\\';newBuf[j++] = '0';
     *fileLength = j;
+
+    *isFirstChunk = 0;
     
   } else {
   //.Protocol 2
@@ -185,6 +201,20 @@ char* processMessage(int protocol, char* buf, int* fileLength){
       if (i == 0 || buf[i] != buf[i - 1]) newBuf[j++] = buf[i];
       i++;
     }
+
+    if (*isFirstChunk == 0){
+      i = 0;
+      while (i < j && newBuf[i] == *lastByte){
+        i++;
+      }
+      newBuf += i;
+      j -= i;
+      if (j != 0) *lastByte = newBuf[j - 1];
+    } else {
+      if (j != 0) *lastByte = newBuf[j - 1];
+    }
+    *isFirstChunk = 0;
+
     *fileLength = j;
     newBuf -= 4;
     newBuf[3] = (unsigned char) (*fileLength & 0xFF);
@@ -192,6 +222,7 @@ char* processMessage(int protocol, char* buf, int* fileLength){
     newBuf[1] = (unsigned char) (*fileLength >> 16 & 0xFF);
     newBuf[0] = (unsigned char) (*fileLength >> 24 & 0xFF);
     *fileLength += 4;
+
     
   }
   return newBuf;
@@ -205,6 +236,8 @@ void initPool(int sockfd, pool *p){
     p->clientfd[i].ID = -1;
     p->clientfd[i].order = 0;
     p->clientfd[i].protocol = 0;
+    p->clientfd[i].isFirstChunk = 1;
+    p->clientfd[i].lastByte = 'a';
   }
 
 
@@ -215,7 +248,6 @@ void initPool(int sockfd, pool *p){
 }
 
 void addClient(int clientFd, pool *p){
-  printf("ADDING client %d\n", clientFd);
   int i;
   p->nready--;
   for (i = 0; i < FD_SETSIZE; i++)
@@ -240,21 +272,23 @@ void addClient(int clientFd, pool *p){
     
 }
 
-void endClientJob(client *client, char *buf1, char *buf2, pool *p){
-  printf("%s\n", "Done with one client using select");
+void endClientJob(client *client, char *buf1, char *buf2, pool *p, int isFinish){
   if (buf1) free(buf1);
   if (buf2 )free(buf2);
-  close(client->ID);
+  //close(client->ID);
+  if (isFinish == 0) return;
   FD_CLR(client->ID, &p->read_set);
   client->ID = -1;
   client->order = 0;
   client->protocol = 0;
+  client->isFirstChunk = 1;
+  client->lastByte = 'a';
+  printf("%s\n", "Done with one client using select");
 }
 
 
 
 void clientJob(client* client, pool *p){
-  printf("STARTING JOB\n");
   int lengthToSend = 0;
   char *bufToSend;
   int resLength = 0;
@@ -273,7 +307,7 @@ void clientJob(client* client, pool *p){
     resLength = 8;
     resBuf = readDataFromClient(client->ID, mutualBuf, &resLength, 1, 0);
     if (!resBuf){
-      endClientJob(client, mutualBuf, NULL, p);
+      endClientJob(client, mutualBuf, NULL, p, 1);
       return;
     }
 
@@ -286,7 +320,7 @@ void clientJob(client* client, pool *p){
     checksum = ntohs(*((unsigned short*)( resBuf + 2)));
     numberToBuf(checksum, resBuf + 2, 2);
     if ((unsigned short)checkSum(resBuf, 8) != 0) {
-      endClientJob(client, mutualBuf, NULL, p);
+      endClientJob(client, mutualBuf, NULL, p, 1);
       return;
     }
 
@@ -294,7 +328,7 @@ void clientJob(client* client, pool *p){
     numberToBuf(protocol, resBuf + 1, 1);
     int check = sendDataToClient(client->ID, resBuf, 8);
     if (check < 0) 
-      endClientJob(client, mutualBuf, NULL, p);
+      endClientJob(client, mutualBuf, NULL, p, 1);
     client->order = 1;
   }
   
@@ -304,29 +338,28 @@ void clientJob(client* client, pool *p){
   else {
 
     protocol = client->protocol;
-    printf("Starting phase 2 with protocol %d\n", protocol);
     mutualBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
     //.READ
     resLength = -1;
     resBuf = readDataFromClient(client->ID, mutualBuf, &resLength, 2, protocol);
     if (!resBuf){
-      endClientJob(client, mutualBuf, NULL, p);
+      endClientJob(client, mutualBuf, NULL, p, 1);
       return;
     }
     
     //.PROCESS
-    printf("Before process\n");
-    bufToSend = processMessage(protocol, resBuf, &resLength);
+    char* newBufHead;
+    bufToSend = processMessage(protocol, resBuf, &resLength, &(client->isFirstChunk), &(client->lastByte), &newBufHead);
     if (bufToSend == NULL){
-      endClientJob(client, mutualBuf, bufToSend, p);
+      endClientJob(client, mutualBuf, newBufHead, p, 1);
       return;
     }
-    printf("After protcess\n");
 
     //.WRITE
     sendDataToClient(client->ID, bufToSend, resLength);
     
-    endClientJob(client, mutualBuf, bufToSend, p);
+    endClientJob(client, mutualBuf, newBufHead, p, 0);
+
   }
   
 

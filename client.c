@@ -253,10 +253,10 @@ int main(int argc, char *argv[]){
 
   inputBuf = (char*) malloc (sizeof(char)* MAX_FILE_LENGTH);
 	inputLength = readInputFile(inputBuf);
-/*  inputLength = 2000000;
+/*  inputLength = 10000000;
   for (i = 0; i < inputLength; i++){
-    if ( i < 700000) inputBuf[i] = 'a';
-    else if (i < 1400000) inputBuf[i] = 'b';
+    if ( i < 3000000) inputBuf[i] = 'a';
+    else if (i < 6000000) inputBuf[i] = 'b';
     else inputBuf[i] = 'c';
     //if ( i % 5 == 0) inputBuf[i] = '\\';
   }*/
