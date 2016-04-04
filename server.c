@@ -127,7 +127,7 @@ void numberToBuf(int number, char *buf, int length){
   }
 }
 
-char* processMessage(int protocol, char* buf, int* fileLength){
+char* processMessage(int protocol, char* buf, int* fileLength, int* isFirstChunk, char* lastByte){
   char* newBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
   //.Protocol 1
   if (protocol == 1){
@@ -138,13 +138,13 @@ char* processMessage(int protocol, char* buf, int* fileLength){
         i++;
       } else {
         if (buf[i + 1] != '\\') {
-          fprintf(stderr, "Protocol violated\n" );
+          //fprintf(stderr, "Protocol violated\n" );
           return NULL;
         }
         newBuf[j++] = buf[i++]; newBuf[j++] = buf[i++];
         while (buf[i] == '\\') {
           if (buf[i + 1] != '\\' && buf[i + 1] != '0') {
-            fprintf(stderr, "Protocol violated\n" );
+            //fprintf(stderr, "Protocol violated\n" );
             return NULL;
           }
           if (buf[i + 1] == '\\') i += 2;
@@ -152,8 +152,31 @@ char* processMessage(int protocol, char* buf, int* fileLength){
         }
       }
     }
+    //fprintf(stderr, "lastByte %c\n", *lastByte);
+    //fprintf(stderr, "chunk to send before cheeck lastByte %d\n", j);
+    for (i = 0; i < j; i ++){
+      //fprintf(stderr, "DM %c\n", newBuf[i]);
+    }
+    //REMOVE first bytes if they are the same as lastByte
+    //fprintf(stderr, "---------------------  isFirstChunk %d\n", *isFirstChunk);
+    if (*isFirstChunk == 0){
+      i = 0;
+      //fprintf(stderr, "So Sanh %c %c\n", newBuf[0], *lastByte);
+      while (i < j && newBuf[i] == *lastByte){
+        i++;
+      }
+      newBuf += i;
+      j -= i;
+      if (j != 0) *lastByte = newBuf[j - 1];
+    } else {
+      if (j != 0) *lastByte = newBuf[j - 1];
+    }
+    
     newBuf[j++] = '\\';newBuf[j++] = '0';
     *fileLength = j;
+    //fprintf(stderr, "Chunk to send %d\n", *fileLength);
+
+    *isFirstChunk = 0;
     
   } else {
   //.Protocol 2
@@ -165,6 +188,21 @@ char* processMessage(int protocol, char* buf, int* fileLength){
       if (i == 0 || buf[i] != buf[i - 1]) newBuf[j++] = buf[i];
       i++;
     }
+
+    if (*isFirstChunk == 0){
+      i = 0;
+      //fprintf(stderr, "So Sanh %c %c\n", newBuf[0], *lastByte);
+      while (i < j && newBuf[i] == *lastByte){
+        i++;
+      }
+      newBuf += i;
+      j -= i;
+      if (j != 0) *lastByte = newBuf[j - 1];
+    } else {
+      if (j != 0) *lastByte = newBuf[j - 1];
+    }
+    *isFirstChunk = 0;
+
     *fileLength = j;
     newBuf -= 4;
     newBuf[3] = (unsigned char) (*fileLength & 0xFF);
@@ -172,6 +210,7 @@ char* processMessage(int protocol, char* buf, int* fileLength){
     newBuf[1] = (unsigned char) (*fileLength >> 16 & 0xFF);
     newBuf[0] = (unsigned char) (*fileLength >> 24 & 0xFF);
     *fileLength += 4;
+
     
   }
   return newBuf;
@@ -192,7 +231,7 @@ int main(int argc, char *argv[]){
   int pid;
 
   if (isValidInput(argc, argv) == 0) {
-    fprintf(stderr,"Invalid input\n");
+    //fprintf(stderr,"Invalid input\n");
     return 1;
   }
   signal(SIGPIPE, SIG_IGN);  //ignore SIGPINE signal
@@ -241,9 +280,14 @@ int main(int argc, char *argv[]){
         /* This is the client process */
         close(sockfd);
         ///START
+        //INITIAL STATE
+        int isFirstChunk = 1;
+        char lastByte;
+
         //CREATE AN MUTUAL MEMORY CHUNK
         mutualBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
         //-------------PHASE 1--------------
+        //fprintf(stderr, "phase 1 read\n");
         //.READ
         resLength = 8;
         resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 1, 0);
@@ -253,7 +297,7 @@ int main(int argc, char *argv[]){
           printf("Done with one client\n");exit(1);
         }
 
-
+        //fprintf(stderr, "phase 1 write\n");
         //.WRITE
         protocol = (int) resBuf[1];
         if (protocol == 0) protocol = 2;
@@ -274,40 +318,45 @@ int main(int argc, char *argv[]){
           free(mutualBuf);
           printf("Done with one client\n");exit(1);
         }
-      
-        //---------------PHASE 2----------------
-        //.READ
-        resLength = -1;
-        resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 2, protocol);
-        if (!resBuf){
-          close(clientFd);
-          free(mutualBuf);
-          printf("Done with one client\n");exit(1);
-        }
-        
-        
-        //.PROCESS
-        bufToSend = processMessage(protocol, resBuf, &resLength);
-        if (bufToSend == NULL){
-          close(clientFd);
-          free(mutualBuf);
-          printf("Done with one client\n");exit(1);
-        }
 
-        //.WRITE
-        check = sendDataToClient(clientFd, bufToSend, resLength);
-        if (check == -1){
-          close(clientFd);
-          free(mutualBuf);
-          printf("Done with one client\n");exit(1);
+        while (1){
+
+        
+          //---------------PHASE 2----------------
+          //fprintf(stderr, "READ\n");
+          //.READ
+          resLength = -1;
+          resBuf = readDataFromClient(clientFd, mutualBuf, &resLength, 2, protocol);
+          if (!resBuf){
+            close(clientFd);
+            free(mutualBuf);
+            printf("Done with one client\n");exit(1);
+          }
+          
+          //fprintf(stderr, "PROCESS\n");
+          //.PROCESS
+          bufToSend = processMessage(protocol, resBuf, &resLength, &isFirstChunk, &lastByte);
+          if (bufToSend == NULL){
+            close(clientFd);
+            free(mutualBuf);
+            printf("Done with one client\n");exit(1);
+          }
+          //fprintf(stderr, "WRITE\n");
+          //.WRITE
+          check = sendDataToClient(clientFd, bufToSend, resLength);
+          if (check == -1){
+            close(clientFd);
+            free(mutualBuf);
+            printf("Done with one client\n");exit(1);
+          }
         }
 
         printf("%s\n", "Done with one client\n");
         free(mutualBuf);
         free(bufToSend);
-        close(clientFd);
+        //close(clientFd);
         ///END
-        exit(0);
+        //exit(0);
     }
     else {
       close(clientFd);

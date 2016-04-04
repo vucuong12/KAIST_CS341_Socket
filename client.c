@@ -1,5 +1,6 @@
 #define MAX_BUF 8192
-#define MAX_FILE_LENGTH 11001000
+#define MAX_FILE_LENGTH 10111000
+#define MAX_CHUNK 500000
 
 typedef unsigned short u16;
 typedef unsigned long u32;
@@ -47,16 +48,16 @@ int sendDataToServer1(int sockfd, char* bufp, int nleft){
 }
 
 int sendDataToServer(int sockfd, char* bufp, int bufLength){
-  int maxLengthToSend = 50000;
+  int maxLengthToSend = 500000;
   int nsent;
 	int nleft = bufLength;
 	int nwritten = 0;
-
+  int dem = 0;
 	while (nleft > 0) {
     nwritten =  send(sockfd, bufp, min(maxLengthToSend, nleft), 0);
-
+    //fprintf(stderr, "Byte sent %d: %d\n", dem++, nwritten);
 		if (nwritten <= 0) {
-      
+     
 	    if (errno == EINTR)  /* interrupted by sig handler return */
 				nwritten = 0;    /* and call write() again */
 	    else{
@@ -66,7 +67,6 @@ int sendDataToServer(int sockfd, char* bufp, int bufLength){
 		}
 
 		nleft -= nwritten;
-    //fprintf(stderr, "%d\n", nleft);
 		bufp += nwritten;
   }
   return 1;
@@ -126,13 +126,11 @@ int readInputFile(char* buf){
   int fileLength = 0;
   buf += 4;
   int nread = 0;
-  //char* tempBuf = (char*) malloc (sizeof(char)* MAX_FILE_LENGTH * 2);
+
   while((nread = read(STDIN_FILENO, buf, MAX_BUF)) > 0)
   {
-    //fprintf(stderr, "DM %d\n", nread);
     fileLength += nread;
     buf += nread;
-
   }
   if (nread < 0) {
     perror("ERROR reading input !");
@@ -252,8 +250,16 @@ int main(int argc, char *argv[]){
   //----------------------------------------------------------------------------
 	//-------------GET DATA TO SEND (saved in inputBuf and inputLength)-----------
   //----------------------------------------------------------------------------
+
   inputBuf = (char*) malloc (sizeof(char)* MAX_FILE_LENGTH);
 	inputLength = readInputFile(inputBuf);
+/*  inputLength = 2000000;
+  for (i = 0; i < inputLength; i++){
+    if ( i < 700000) inputBuf[i] = 'a';
+    else if (i < 1400000) inputBuf[i] = 'b';
+    else inputBuf[i] = 'c';
+    //if ( i % 5 == 0) inputBuf[i] = '\\';
+  }*/
 
   if (inputLength == -1){
     free(mutualBuf);
@@ -262,18 +268,17 @@ int main(int argc, char *argv[]){
     return 1;
   }
 
-
   //-----------------------------------
   //-------------PHASE 1---------------
-  //-----------------------------------\
+  //-----------------------------------
   
   int protocol = atoi(argv[6]);
-  //calculate checksum
-  //https://tools.ietf.org/html/rfc1071#section-3
+  
   int checksum = 0;
   //calculate trans_id
   unsigned int trans_id = 0;
-  
+  //calculate checksum
+  //https://tools.ietf.org/html/rfc1071#section-3
   bufToSend = (char*) malloc (sizeof(char)*8);
   numberToBuf(0, bufToSend, 1);
   numberToBuf(protocol, bufToSend + 1, 1);
@@ -282,11 +287,10 @@ int main(int argc, char *argv[]){
   checksum = checkSum(bufToSend, 6);
   numberToBuf(checksum, bufToSend + 2, 2);
   numberToBuf(trans_id, bufToSend + 4, 4);
-/*  for (i = 0; i < 8; i++){
-    fprintf(stderr, "%02x\n", (unsigned char) bufToSend[i]);
-  }*/
+  //SEND
   sendDataToServer(sockfd, bufToSend, 8);
   resLength = 8;
+  //RECEIVE
   resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 1, 0);
 
   //server rejected the connection
@@ -297,7 +301,7 @@ int main(int argc, char *argv[]){
     close(sockfd);
     return 1;
   }
-
+  //Confirmed protocol
   protocol = (int) resBuf[1];
   
   //-----------------------------------
@@ -306,87 +310,133 @@ int main(int argc, char *argv[]){
 
   //1. PROTOCOL 1
   if (protocol == 1){
-    //Add backslash
-    char* tempBuf = (char*) malloc (sizeof(char)*(inputLength * 2 + 100));
+    char* inputBufHead = inputBuf;
     inputBuf += 4;
-    int j = 0;
-    int dem =0;
-    for (i = 0 ; i < inputLength; i++){
-      if (inputBuf[i] == '\\'){
-        tempBuf[j++] = '\\';
-        dem++;
-      } 
-    
-      tempBuf[j++] = inputBuf[i];
-    }
-    tempBuf[j++] = '\\'; tempBuf[j++] = '0';
-    inputLength = j;  
-     
-    //SEND
-    int check = sendDataToServer(sockfd, tempBuf, inputLength);
-    if (check == -1){
-      free(mutualBuf);
-      free(tempBuf);
-      free(inputBuf - 4);
-      close(sockfd);
-      return 1;
-    }
 
-    //RECEIVE RESULT
-    resLength = -1;
-    resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 2, protocol);
-    
-    if (resBuf != NULL) {
-      //remove backslash
-      i = 0; j = 0;
-      while (!(resBuf[i] == '\\' && resBuf[i + 1] == '0')){
-        if (resBuf[i] != '\\'){
-          tempBuf[j++] = resBuf[i++];
-        } else {
-          tempBuf[j++] = resBuf[i++];i++;
-        }
+    char* tempBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2 + 100));
+    //SPLIT MESSAGE INTO DIFFERENT CHUNKS
+    int totalInputLength = inputLength;
+    int sentLength;
+    while (totalInputLength > 0){
+      inputLength = min(totalInputLength, MAX_CHUNK);
+      sentLength = inputLength;
+
+      //Add backslash
+      int j = 0;
+      for (i = 0 ; i < inputLength; i++){
+        if (inputBuf[i] == '\\'){
+          tempBuf[j++] = '\\';
+        } 
+        tempBuf[j++] = inputBuf[i];
       }
-    }
-    resLength = j;
-    //Printout to file
-    if (resBuf != NULL)
+      tempBuf[j++] = '\\'; tempBuf[j++] = '0';
+      inputLength = j;  
+
+      //SEND
+      int check = sendDataToServer(sockfd, tempBuf, inputLength);
+      if (check == -1){
+        free(mutualBuf);
+        free(tempBuf);
+        free(inputBufHead);
+        close(sockfd);
+        return 1;
+      }
+
+      //RECEIVE RESULT
+      resLength = -1;
+      resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 2, protocol);
+
+      //UNWRAP RESULT
+      if (resBuf != NULL) {
+        //remove backslash
+        i = 0; j = 0;
+        while (!(resBuf[i] == '\\' && resBuf[i + 1] == '0')){
+          if (resBuf[i] != '\\'){
+            tempBuf[j++] = resBuf[i++];
+          } else {
+            if (resBuf[i + 1] != '\\') {
+              fprintf(stderr, "Protocol violated !\n");
+              free(mutualBuf);
+              free(tempBuf);
+              free(inputBufHead);
+              close(sockfd);
+              return 1;
+            }
+            tempBuf[j++] = resBuf[i++];i++;
+          }
+        }
+      } else {
+        fprintf(stderr, "Error reading from server\n");
+        free(mutualBuf);
+        free(tempBuf);
+        free(inputBufHead);
+        close(sockfd);
+        return 1;
+      }
+      resLength = j;
+      //Printout to file
       writeToFile(tempBuf, resLength);
+  
+      inputBuf = inputBuf +  sentLength;
+      totalInputLength -= sentLength;
+    }
 
     free(tempBuf);
     free (mutualBuf);
-    free (inputBuf - 4);
+    free (inputBufHead);
   }
   //2. PROTOCOL 2
   else {
-    //add length to the beginning of the message to send
-    inputBuf[3] = (unsigned char) (inputLength & 0xFF);
-    inputBuf[2] = (unsigned char) (inputLength >> 8 & 0xFF);
-    inputBuf[1] = (unsigned char) (inputLength >> 16 & 0xFF);
-    inputBuf[0] = (unsigned char) (inputLength >> 24 & 0xFF);
+    char* inputBufHead = inputBuf;
+    inputBuf += 4;
+    int totalInputLength = inputLength;
+    int sentLength;
 
-    //SEND
-    int check = sendDataToServer(sockfd, inputBuf, inputLength + 4);
-    if (check == -1){
-      free(mutualBuf);
-      free(inputBuf);
-      close(sockfd);
-      return 1;
-    }
+    while (totalInputLength > 0){
+      inputLength = min(totalInputLength, MAX_CHUNK);
+      sentLength = inputLength;
 
-    //RECEIVE RESULT
-    resLength = -1;
-    resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 2, protocol);
-    if (resBuf != NULL) {
-      resLength -= 4;
-      resBuf += 4;
-    }
+      //add length to the beginning of the message to send
+      inputBuf -= 4;
+      inputBuf[3] = (unsigned char) (inputLength & 0xFF);
+      inputBuf[2] = (unsigned char) (inputLength >> 8 & 0xFF);
+      inputBuf[1] = (unsigned char) (inputLength >> 16 & 0xFF);
+      inputBuf[0] = (unsigned char) (inputLength >> 24 & 0xFF);
 
-    //Printout to file
-    if (resBuf != NULL)
+      //SEND
+      int check = sendDataToServer(sockfd, inputBuf, inputLength + 4);
+      if (check == -1){
+        free(mutualBuf);
+        free(inputBuf);
+        close(sockfd);
+        return 1;
+      }
+
+      //RECEIVE RESULT
+      resLength = -1;
+      resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 2, protocol);
+
+      //UNWRAP RESULT
+      if (resBuf != NULL) {
+        resLength -= 4;
+        resBuf += 4;
+      } else {
+        free(mutualBuf);
+        free(inputBuf);
+        close(sockfd);
+        return 1;
+      }
+
+      //Printout to file
       writeToFile(resBuf, resLength);
 
+      totalInputLength -= sentLength;
+
+      inputBuf += (sentLength + 4);
+    }
+
     free (mutualBuf);
-    free (inputBuf);
+    free (inputBufHead);
   }
   free (bufToSend);
   close(sockfd);
