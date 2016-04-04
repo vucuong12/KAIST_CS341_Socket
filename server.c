@@ -32,7 +32,6 @@ int sendDataToClient(int sockfd, char* bufp, int bufLength){
       if (errno == EINTR)  /* interrupted by sig handler return */
         nwritten = 0;    /* and call write() again */
       else{
-        printf("%d\n", errno);
         perror("ERROR writing to client");
         return -1;     /* errorno set by write() */
       }
@@ -127,8 +126,9 @@ void numberToBuf(int number, char *buf, int length){
   }
 }
 
-char* processMessage(int protocol, char* buf, int* fileLength, int* isFirstChunk, char* lastByte){
+char* processMessage(int protocol, char* buf, int* fileLength, int* isFirstChunk, char* lastByte, char** newBufHead){
   char* newBuf = (char*) malloc (sizeof(char)*(MAX_FILE_LENGTH * 2));
+  *newBufHead = newBuf;
   //.Protocol 1
   if (protocol == 1){
     int i = 0, j = 0;
@@ -154,9 +154,7 @@ char* processMessage(int protocol, char* buf, int* fileLength, int* isFirstChunk
     }
     //fprintf(stderr, "lastByte %c\n", *lastByte);
     //fprintf(stderr, "chunk to send before cheeck lastByte %d\n", j);
-    for (i = 0; i < j; i ++){
-      //fprintf(stderr, "DM %c\n", newBuf[i]);
-    }
+
     //REMOVE first bytes if they are the same as lastByte
     //fprintf(stderr, "---------------------  isFirstChunk %d\n", *isFirstChunk);
     if (*isFirstChunk == 0){
@@ -335,10 +333,12 @@ int main(int argc, char *argv[]){
           
           //fprintf(stderr, "PROCESS\n");
           //.PROCESS
-          bufToSend = processMessage(protocol, resBuf, &resLength, &isFirstChunk, &lastByte);
+          char* newBufHead;
+          bufToSend = processMessage(protocol, resBuf, &resLength, &isFirstChunk, &lastByte, &newBufHead);
           if (bufToSend == NULL){
             close(clientFd);
             free(mutualBuf);
+            free(newBufHead);
             printf("Done with one client\n");exit(1);
           }
           //fprintf(stderr, "WRITE\n");
@@ -347,13 +347,14 @@ int main(int argc, char *argv[]){
           if (check == -1){
             close(clientFd);
             free(mutualBuf);
+            free(newBufHead);
             printf("Done with one client\n");exit(1);
           }
+          free(newBufHead);
         }
 
         printf("%s\n", "Done with one client\n");
         free(mutualBuf);
-        free(bufToSend);
         //close(clientFd);
         ///END
         //exit(0);
