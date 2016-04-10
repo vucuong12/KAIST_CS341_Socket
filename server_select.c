@@ -324,9 +324,21 @@ void clientJob(client* client, pool *p){
       return;
     }
 
+    /*numberToBuf(1, resBuf, 1);
+    numberToBuf(protocol, resBuf + 1, 1);
+    int check = sendDataToClient(client->ID, resBuf, 8);*/
+
+    //create net packet to send
+    numberToBuf(1, resBuf + 2, 1);
+    numberToBuf(protocol, resBuf + 3, 1);
+    //calculate new checksum
+    checksum = checkSum(resBuf + 2, 6);
     numberToBuf(1, resBuf, 1);
     numberToBuf(protocol, resBuf + 1, 1);
+    numberToBuf(checksum, resBuf + 2, 2);
+    //SEND
     int check = sendDataToClient(client->ID, resBuf, 8);
+
     if (check < 0) 
       endClientJob(client, mutualBuf, NULL, p, 1);
     client->order = 1;

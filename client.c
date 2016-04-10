@@ -293,6 +293,17 @@ int main(int argc, char *argv[]){
   //RECEIVE
   resBuf = readDataFromServer(sockfd, mutualBuf, &resLength, 1, 0);
 
+  //check checkSum
+  checksum = ntohs(*((unsigned short*)( resBuf + 2)));
+  numberToBuf(checksum, resBuf + 2, 2);
+  if ((unsigned short)checkSum(resBuf, 8) != 0) {
+    fprintf(stderr, "Phase 1 failed\n" );
+    free(mutualBuf);
+    free(inputBuf);
+    close(sockfd);
+    return 1;
+  }
+
   //server rejected the connection
   if (!resBuf || (int)resBuf[0] != 1 || *(unsigned int*) (resBuf + 4) != htonl(trans_id)){
     fprintf(stderr, "Phase 1 failed\n" );

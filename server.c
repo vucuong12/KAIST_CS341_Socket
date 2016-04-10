@@ -308,9 +308,22 @@ int main(int argc, char *argv[]){
           printf("Done with one client\n");exit(1);
         }
 
+        /*numberToBuf(1, resBuf, 1);
+        numberToBuf(protocol, resBuf + 1, 1);
+        int check = sendDataToClient(clientFd, resBuf, 8);*/
+
+
+        //create net packet to send
+        numberToBuf(1, resBuf + 2, 1);
+        numberToBuf(protocol, resBuf + 3, 1);
+        //calculate new checksum
+        checksum = checkSum(resBuf + 2, 6);
         numberToBuf(1, resBuf, 1);
         numberToBuf(protocol, resBuf + 1, 1);
+        numberToBuf(checksum, resBuf + 2, 2);
+        //SEND
         int check = sendDataToClient(clientFd, resBuf, 8);
+
         if (check == -1){
           close(clientFd);
           free(mutualBuf);
